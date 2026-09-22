@@ -1,17 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   MonitorDot, ChefHat, BarChart3, UtensilsCrossed, Settings, LogOut,
-  X, Check, Menu, ShieldCheck, UserCircle
+  X, Check, Menu, ShieldCheck, RefreshCw
 } from "lucide-react";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useSettings } from "@/context/SettingsContext";
+import { useCurrentCashier } from "@/hooks/useCurrentCashier";
+import { DrawerHandoverModal } from "@/components/cashier/DrawerHandoverModal";
 
 export function Navbar({ rightActions }: { rightActions?: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const { settings } = useSettings();
   const [scrolled, setScrolled] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -19,9 +22,12 @@ export function Navbar({ rightActions }: { rightActions?: React.ReactNode }) {
   const [toastMessage, setToastMessage] = useState("");
   const [showMobileNav, setShowMobileNav] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [showHandoverModal, setShowHandoverModal] = useState(false);
   const logoutConfirmBtnRef = useRef<HTMLButtonElement>(null);
 
-  const { isAuthenticated, currentUser, logout } = useAuth();
+  const { isAuthenticated, login, logout } = useAuth();
+  const cashier = useCurrentCashier();
+  const currencySymbol = settings?.currency || "LKR";
 
   const handleLogoutConfirm = useCallback(() => {
     setShowLogoutConfirm(false);
@@ -128,15 +134,15 @@ export function Navbar({ rightActions }: { rightActions?: React.ReactNode }) {
             </div>
           </Link>
 
-          {/* PRIMARY CASHIER Badge (Mobile   Tab/Desktop  ) */}
+          {/* Active Cashier Badge */}
           {mounted && isAuthenticated && (
             <div
-              title={`Role: ${currentUser || "Primary Cashier"}`}
+              title={`Role: ${cashier.role}`}
               className="hidden lg:flex items-center gap-1.5 h-8 px-3 rounded-full bg-emerald-50/80 border border-emerald-300 text-emerald-800 shadow-2xs shrink-0 cursor-default"
             >
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
               <span className="text-[11px] font-black uppercase tracking-wider whitespace-nowrap">
-                {currentUser || "PRIMARY CASHIER"}
+                Cashier: {cashier.name}
               </span>
             </div>
           )}
@@ -178,7 +184,19 @@ export function Navbar({ rightActions }: { rightActions?: React.ReactNode }) {
         <div className="flex items-center justify-end gap-1.5 sm:gap-2 shrink-0 ml-auto">
           {rightActions}
 
-          {/* Logout Button (Screenshot  ) */}
+          {/* Switch Cashier Button */}
+          {mounted && isAuthenticated && (
+            <button
+              onClick={() => setShowHandoverModal(true)}
+              title={`Switch Cashier (currently: ${cashier.name})`}
+              className="hidden sm:flex items-center gap-1.5 h-8 sm:h-9 px-3 rounded-full text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 hover:border-amber-300 transition-all shrink-0 active:scale-95 cursor-pointer shadow-2xs text-[11px] font-bold whitespace-nowrap"
+            >
+              <RefreshCw className="w-3.5 h-3.5 stroke-[2.2] shrink-0" />
+              <span className="hidden xl:inline">Switch Cashier</span>
+            </button>
+          )}
+
+          {/* Logout Button */}
           {mounted && isAuthenticated && (
             <button
               onClick={() => setShowLogoutConfirm(true)}
@@ -189,7 +207,7 @@ export function Navbar({ rightActions }: { rightActions?: React.ReactNode }) {
             </button>
           )}
 
-          {/* Mobile Hamburger Button ( ) - Mobile      */}
+          {/* Mobile Hamburger Button */}
           <button
             type="button"
             onClick={() => setShowMobileNav(true)}
@@ -269,10 +287,18 @@ export function Navbar({ rightActions }: { rightActions?: React.ReactNode }) {
                 <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-white border border-slate-200 text-xs font-bold text-slate-700 shadow-xs">
                   <ShieldCheck className="w-5 h-5 text-emerald-600" />
                   <div>
-                    <p className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold">Logged in as</p>
-                    <p className="text-slate-800 font-bold">{currentUser || "Primary Cashier"}</p>
+                    <p className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold">Cashier</p>
+                    <p className="text-slate-800 font-bold">{cashier.name}</p>
+                    <p className="text-[9px] text-slate-400 font-medium capitalize">{cashier.role}</p>
                   </div>
                 </div>
+                <button
+                  onClick={() => { setShowMobileNav(false); setShowHandoverModal(true); }}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-amber-50 text-amber-700 border border-amber-200 text-sm font-bold hover:bg-amber-100 transition-colors cursor-pointer"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  Switch Cashier
+                </button>
                 <button
                   onClick={() => setShowLogoutConfirm(true)}
                   className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-rose-50 text-rose-600 border border-rose-200 text-sm font-bold hover:bg-rose-100 transition-colors cursor-pointer"
@@ -329,6 +355,24 @@ export function Navbar({ rightActions }: { rightActions?: React.ReactNode }) {
           </div>
         </div>
       )}
+
+      {/* Cash Drawer Handover Modal */}
+      <DrawerHandoverModal
+        isOpen={showHandoverModal}
+        outgoingCashier={cashier}
+        currencySymbol={currencySymbol}
+        onConfirm={(incomingProfile) => {
+          setShowHandoverModal(false);
+          // Replace session in-place — no redirect to /login
+          login(incomingProfile.name, true, incomingProfile);
+          router.push("/cashier");
+        }}
+        onQuickSwitch={() => {
+          setShowHandoverModal(false);
+          logout();
+        }}
+        onClose={() => setShowHandoverModal(false)}
+      />
     </>
   );
 }

@@ -4,14 +4,25 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { useRouter } from "next/navigation";
 import { clearStaffLogin } from "@/app/actions/manager";
 
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export interface CashierProfile {
+  name: string;
+  username: string;
+  role: string;
+}
+
 interface AuthState {
   isAuthenticated: boolean;
   currentUser: string | null;
   loginTimestamp: number | null;
+  cashierProfile: CashierProfile | null;
 }
 
 interface AuthContextType extends AuthState {
-  login: (username: string, rememberMe: boolean) => void;
+  login: (username: string, rememberMe: boolean, profile?: CashierProfile) => void;
   logout: () => void;
   isLoading: boolean;
   isAdminUnlocked: boolean;
@@ -30,11 +41,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     isAuthenticated: false,
     currentUser: null,
     loginTimestamp: null,
+    cashierProfile: null,
   });
   const [isLoading, setIsLoading] = useState(true);
   const [isAdminUnlocked, setIsAdminUnlocked] = useState(false);
 
-  // Sync state across multiple browser tabs
+  // Sync state from storage (also used for cross-tab sync)
   const syncSessionFromStorage = useCallback(() => {
     if (typeof window === "undefined") return;
 
@@ -50,6 +62,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             isAuthenticated: true,
             currentUser: parsed.currentUser,
             loginTimestamp: parsed.loginTimestamp,
+            cashierProfile: parsed.cashierProfile ?? null,
           });
           setIsLoading(false);
           return;
@@ -63,6 +76,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isAuthenticated: false,
       currentUser: null,
       loginTimestamp: null,
+      cashierProfile: null,
     });
     setIsLoading(false);
   }, []);
@@ -80,11 +94,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("storage", handleStorageChange);
   }, [syncSessionFromStorage]);
 
-  const login = (username: string, rememberMe: boolean) => {
+  // -----------------------------------------------------------------------
+  // login — accepts optional CashierProfile so name/role are persisted
+  // -----------------------------------------------------------------------
+  const login = (username: string, rememberMe: boolean, profile?: CashierProfile) => {
     const newSession = {
       isAuthenticated: true,
       currentUser: username,
       loginTimestamp: Date.now(),
+      cashierProfile: profile ?? { name: username, username, role: "Staff" },
     };
 
     setAuthState(newSession);
@@ -115,6 +133,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isAuthenticated: false,
       currentUser: null,
       loginTimestamp: null,
+      cashierProfile: null,
     });
     setIsAdminUnlocked(false);
 
@@ -150,6 +169,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     </AuthContext.Provider>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Hooks
+// ---------------------------------------------------------------------------
 
 export function useAuth() {
   const context = useContext(AuthContext);

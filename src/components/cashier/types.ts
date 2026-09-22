@@ -33,4 +33,5 @@ export type Order = {
     payment_method?: string;
     notes?: string;
     discount?: number;
+    settled_by?: string;
 };

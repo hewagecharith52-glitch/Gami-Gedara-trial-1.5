@@ -47,6 +47,14 @@ interface DrawerReconciliation {
   denominations?: Record<string, number>;
 }
 
+interface CashierHandover {
+  id: string;
+  handover_at: string;
+  outgoing_cashier: string;
+  incoming_cashier: string;
+  expected_cash: number;
+}
+
 type Order = {
   id: string;
   created_at: string;
@@ -213,6 +221,7 @@ export default function AnalyticsPage() {
   const [isMounted, setIsMounted] = useState(false);
   const [isSubmittingShift, setIsSubmittingShift] = useState(false);
   const [pastReconciliations, setPastReconciliations] = useState<DrawerReconciliation[]>([]);
+  const [handovers, setHandovers] = useState<CashierHandover[]>([]);
   const [showShiftSuccess, setShowShiftSuccess] = useState(false);
 
   useEffect(() => {
@@ -271,9 +280,19 @@ export default function AnalyticsPage() {
     if (data) setPastReconciliations(data as DrawerReconciliation[]);
   }, []);
 
+  const fetchHandovers = useCallback(async () => {
+    const { data } = await supabase
+      .from("cashier_handovers")
+      .select("*")
+      .order("handover_at", { ascending: false })
+      .limit(200);
+    if (data) setHandovers(data as CashierHandover[]);
+  }, []);
+
   useEffect(() => {
     fetchReconciliations();
-  }, [fetchReconciliations]);
+    fetchHandovers();
+  }, [fetchReconciliations, fetchHandovers]);
 
   useEffect(() => {
     fetchAnalytics();
@@ -302,13 +321,20 @@ export default function AnalyticsPage() {
       })
       .subscribe();
 
-    channelRefs.current = [ordersChannel, pettyChannel, drawerChannel];
+    const handoverChannel = supabase
+      .channel(`rt_handover_${Date.now()}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "cashier_handovers" }, () => {
+        fetchHandovers();
+      })
+      .subscribe();
+
+    channelRefs.current = [ordersChannel, pettyChannel, drawerChannel, handoverChannel];
 
     return () => {
       channelRefs.current.forEach((ch) => supabase.removeChannel(ch));
       channelRefs.current = [];
     };
-  }, [fetchAnalytics, fetchReconciliations]);
+  }, [fetchAnalytics, fetchReconciliations, fetchHandovers]);
 
   useEffect(() => {
     if (printOrder) {
@@ -444,6 +470,27 @@ export default function AnalyticsPage() {
       return true;
     });
   }, [pastReconciliations, timeFilter, customDate]);
+
+  const filteredHandovers = useMemo(() => {
+    const now = new Date();
+    return handovers.filter((ho) => {
+      const hoDate = new Date(ho.handover_at);
+      if (timeFilter === "Today") return isSameLocalDate(hoDate, now);
+      if (timeFilter === "Week") {
+        const weekAgo = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7);
+        return hoDate >= weekAgo;
+      }
+      if (timeFilter === "Month") {
+        return hoDate.getMonth() === now.getMonth() && hoDate.getFullYear() === now.getFullYear();
+      }
+      if (timeFilter === "Year") return hoDate.getFullYear() === now.getFullYear();
+      if (timeFilter === "Custom" && customDate) {
+        const targetDate = parseLocalISODate(customDate);
+        return isSameLocalDate(hoDate, targetDate);
+      }
+      return true;
+    });
+  }, [handovers, timeFilter, customDate]);
 
   const allFilteredPettyCash = useMemo(() => {
     const now = new Date();
@@ -1166,6 +1213,55 @@ export default function AnalyticsPage() {
                                 <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-amber-100 text-amber-700 font-bold text-xs">➕ +{settings.currency}{rec.cash_variance.toLocaleString()}</span>
                               )}
                             </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Cashier Handover History */}
+            <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-4 sm:p-8 mt-6">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="font-bold text-slate-800 text-base sm:text-lg flex items-center gap-2">
+                  🔄 Cashier Handover History
+                </h2>
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">
+                  {timeFilter === "Custom" && customDate
+                    ? parseLocalISODate(customDate).toLocaleDateString([], { day: "2-digit", month: "short", year: "numeric" })
+                    : timeFilter === "Year" ? "This Year" : timeFilter}
+                </span>
+              </div>
+              {filteredHandovers.length === 0 ? (
+                <div className="text-center py-12 text-slate-400 text-sm font-bold uppercase tracking-widest">
+                  No handovers found for this period.
+                </div>
+              ) : (
+                <div className="w-full overflow-x-auto no-scrollbar">
+                  <div className="min-w-[600px] rounded-xl border border-slate-100">
+                    <table className="w-full text-left text-sm">
+                      <thead className="bg-slate-50 text-slate-400 font-bold tracking-widest text-[10px] uppercase border-b border-slate-100">
+                        <tr>
+                          <th className="px-4 py-3">Time</th>
+                          <th className="px-4 py-3">Outgoing Cashier</th>
+                          <th className="px-4 py-3">Incoming Cashier</th>
+                          <th className="px-4 py-3 text-right">Expected Cash Verified</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {filteredHandovers.map((ho) => (
+                          <tr key={ho.id} className="hover:bg-slate-50 transition-colors">
+                            <td className="px-4 py-3 whitespace-nowrap font-bold text-slate-700">
+                              {new Date(ho.handover_at).toLocaleDateString([], { day: '2-digit', month: 'short', year: 'numeric' })}
+                              <span className="ml-2 text-slate-400 font-medium text-xs">
+                                {new Date(ho.handover_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-slate-600 font-medium">{ho.outgoing_cashier}</td>
+                            <td className="px-4 py-3 font-bold text-slate-900">{ho.incoming_cashier}</td>
+                            <td className="px-4 py-3 text-right font-bold text-indigo-700">{settings.currency}{Number(ho.expected_cash || 0).toLocaleString()}</td>
                           </tr>
                         ))}
                       </tbody>

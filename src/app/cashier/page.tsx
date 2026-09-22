@@ -8,13 +8,14 @@ import { ProtectedRoute } from "@/components/ProtectedRoute";
 import PaymentModal from "@/components/PaymentModal";
 import { useSettings } from "@/context/SettingsContext";
 import PrintReceipt from "@/components/PrintReceipt";
+import { useCurrentCashier } from "@/hooks/useCurrentCashier";
 
 // Modular Components & Shared Types
 import { Order, OrderItem, OrderStatus, OrderType } from "@/components/cashier/types";
 import { TablesGrid } from "@/components/cashier/TablesGrid";
 import { IncomingQrQueue } from "@/components/cashier/IncomingQrQueue";
 import { LiveOrdersWorkspace } from "@/components/cashier/LiveOrdersWorkspace";
-import { SettlementPanel } from "@/components/cashier/SettlementPanel";
+import { SettlementPanel, CashierDaySummary } from "@/components/cashier/SettlementPanel";
 import { ManualOrderModal } from "@/components/cashier/ManualOrderModal";
 import { PettyCashModal } from "@/components/cashier/PettyCashModal";
 import { VoidPinModal } from "@/components/cashier/VoidPinModal";
@@ -51,8 +52,10 @@ const playChime = (type: 'new_order' | 'order_ready') => {
 
 export default function CashierPage() {
   const { settings, refreshSettings } = useSettings();
+  const cashier = useCurrentCashier();
   const [orders, setOrders] = useState<Order[]>([]);
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+  const [daySummary, setDaySummary] = useState<CashierDaySummary[]>([]);
 
   // Mobile App View Active Tab
   const [mobileTab, setMobileTab] = useState<"tables" | "live" | "settle">("tables");
@@ -108,6 +111,43 @@ export default function CashierPage() {
 
   useEffect(() => { ordersRef.current = orders; }, [orders]);
 
+  // Fetch today's completed orders grouped by settled_by for the day summary
+  const fetchDaySummary = useCallback(async () => {
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const { data } = await supabase
+      .from("orders")
+      .select("total_amount, payment_method, settled_by")
+      .in("status", ["completed", "Completed"])
+      .gte("created_at", todayStart.toISOString());
+
+    if (!data) return;
+
+    const map = new Map<string, CashierDaySummary>();
+    for (const row of data as any[]) {
+      const name: string = row.settled_by || "Unknown";
+      const amount = Number(row.total_amount || 0);
+      const method: string = (row.payment_method || "Cash").toLowerCase();
+      const existing = map.get(name) ?? { cashierName: name, cash: 0, card: 0, split: 0, total: 0 };
+
+      if (method.includes("split")) {
+        existing.split += amount;
+        // Attribute split evenly to cash & card for reporting
+        existing.cash += amount / 2;
+        existing.card += amount / 2;
+      } else if (method.includes("card")) {
+        existing.card += amount;
+      } else {
+        existing.cash += amount;
+      }
+      existing.total += amount;
+      map.set(name, existing);
+    }
+
+    setDaySummary(Array.from(map.values()).sort((a, b) => b.total - a.total));
+  }, []);
+
   const triggerSafePrint = useCallback((order: Order, isKot: boolean = false, onClose?: () => void) => {
     if (typeof window === "undefined" || (isKot && (!order.items || order.items.length === 0))) return;
     const now = Date.now();
@@ -142,6 +182,7 @@ export default function CashierPage() {
   }, []);
 
   useEffect(() => { if (refreshSettings) refreshSettings(); }, [refreshSettings]);
+  useEffect(() => { fetchDaySummary(); }, [fetchDaySummary]);
 
   useEffect(() => {
     const fetchRestaurantTables = async () => {
@@ -416,6 +457,7 @@ export default function CashierPage() {
           payment_method: method || 'Cash',
           status: 'completed',
           discount: Number(calculatedDiscount),
+          settled_by: cashier.name,
           notes: (method === "Cash" || passedTendered) ? `[Paid Cash: ${tenderedAmt} | Change: ${changeAmt}] ${stagedDirectOrder.special_notes || ''}`.trim() : stagedDirectOrder.special_notes,
           created_at: new Date().toISOString()
         };
@@ -430,7 +472,8 @@ export default function CashierPage() {
           triggerSafePrint({
             ...inserted,
             discount: calculatedDiscount,
-            total_amount: finalGrandTotal
+            total_amount: finalGrandTotal,
+            settled_by: cashier.name,
           }, false);
 
           setLastSettledDetails({
@@ -445,6 +488,7 @@ export default function CashierPage() {
         }
         setStagedDirectOrder(null);
         setMobileTab("tables");
+        fetchDaySummary();
       } else if (selectedOrder) {
         const isDineIn = !selectedOrder.order_type || selectedOrder.order_type === 'dine-in';
 
@@ -453,6 +497,7 @@ export default function CashierPage() {
           payment_method: method,
           total_amount: Number(finalGrandTotal),
           discount: Number(calculatedDiscount),
+          settled_by: cashier.name,
           is_bill_printed: false,
           notes: (method === "Cash" || passedTendered) ? `[Paid Cash: ${tenderedAmt} | Change: ${changeAmt}] ${selectedOrder.notes || ''}`.trim() : selectedOrder.notes
         };
@@ -470,7 +515,8 @@ export default function CashierPage() {
             ...selectedOrder,
             ...updateData,
             discount: calculatedDiscount,
-            total_amount: finalGrandTotal
+            total_amount: finalGrandTotal,
+            settled_by: cashier.name,
           }, false);
         }
 
@@ -485,6 +531,7 @@ export default function CashierPage() {
         setShowPaymentSuccess(true);
         setSelectedOrderId(null);
         setMobileTab("tables");
+        fetchDaySummary();
       }
       setIsPaymentModalOpen(false);
       setDiscountValue(0);
@@ -752,6 +799,8 @@ export default function CashierPage() {
             onPrintGuestBill={handlePrintGuestBill}
             onSelectPaymentMethod={(method) => { setPaymentModalMethod(method); setIsPaymentModalOpen(true); }}
             onInstantCardPay={() => handleSettlePayment("Card", String(finalGrandTotal), 0)}
+            daySummary={daySummary}
+            activeCashierName={cashier.name}
           />
         </div>
 
@@ -844,6 +893,8 @@ export default function CashierPage() {
               onPrintGuestBill={handlePrintGuestBill}
               onSelectPaymentMethod={(method) => { setPaymentModalMethod(method); setIsPaymentModalOpen(true); }}
               onInstantCardPay={() => handleSettlePayment("Card", String(finalGrandTotal), 0)}
+              daySummary={daySummary}
+              activeCashierName={cashier.name}
             />
           </div>
 
@@ -1165,6 +1216,7 @@ export default function CashierPage() {
         serviceChargePct={serviceChargePct}
         taxPct={taxPct}
         calculatedDiscount={calculatedDiscount}
+        settledBy={cashier.name}
       />
     </ProtectedRoute>
   );

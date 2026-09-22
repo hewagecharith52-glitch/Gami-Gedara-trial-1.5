@@ -39,7 +39,11 @@ function LoginForm() {
       const result = await verifyStaffLogin(username, password);
 
       if (result.success && result.username) {
-        login(result.username, rememberMe);
+        login(result.username, rememberMe, {
+          name: result.username,
+          username: username,
+          role: result.role || "Staff",
+        });
         showToast(`Welcome back, ${result.username}!`, "success");
 
         setTimeout(() => {

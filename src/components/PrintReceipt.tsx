@@ -1,28 +1,8 @@
 "use client";
 
 import React from "react";
+import type { Order, OrderItem } from "@/components/cashier/types";
 
-type OrderItem = {
-    id: string;
-    name: string;
-    price: number;
-    quantity: number;
-    notes?: string;
-};
-
-type Order = {
-    id: string;
-    created_at: string;
-    table_no: string;
-    items: OrderItem[];
-    total_amount: number;
-    status?: string;
-    order_type?: string;
-    customer_name?: string;
-    payment_method?: string;
-    notes?: string;
-    discount?: number;
-};
 
 interface PrintReceiptProps {
     kotPrintData: Order | null;
@@ -33,6 +13,7 @@ interface PrintReceiptProps {
     serviceChargePct: number;
     taxPct: number;
     calculatedDiscount: number;
+    settledBy?: string;
 }
 
 export default function PrintReceipt({
@@ -44,6 +25,7 @@ export default function PrintReceipt({
     serviceChargePct,
     taxPct,
     calculatedDiscount,
+    settledBy,
 }: PrintReceiptProps) {
     if (!kotPrintData && !voucherData && !receiptOrder) return null;
 
@@ -179,7 +161,7 @@ export default function PrintReceipt({
                             <span>#{receiptOrder.id.slice(0, 6).toUpperCase()}</span>
                         </div>
                         <div className="flex justify-between">
-                            <span>CASHIER: 01</span>
+                            <span>CASHIER: {settledBy || receiptOrder.settled_by || "—"}</span>
                             <span>{new Date(receiptOrder.created_at || Date.now()).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
                         </div>
                         {receiptOrder.customer_name && <p>Customer: {receiptOrder.customer_name}</p>}

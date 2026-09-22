@@ -1,9 +1,17 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Receipt, Printer, User } from "lucide-react";
+import { Receipt, Printer, User, TrendingUp, Banknote, CreditCard as CardIcon } from "lucide-react";
 import { Order, OrderItem } from "./types";
 import { useSettings } from "@/context/SettingsContext";
+
+export interface CashierDaySummary {
+    cashierName: string;
+    cash: number;
+    card: number;
+    split: number;
+    total: number;
+}
 
 interface SettlementPanelProps {
     activeSettlementOrder: Order | null;
@@ -23,6 +31,8 @@ interface SettlementPanelProps {
     onPrintGuestBill: (order: Order) => void;
     onSelectPaymentMethod: (method: string) => void;
     onInstantCardPay: () => void;
+    daySummary?: CashierDaySummary[];
+    activeCashierName?: string;
 }
 
 export const SettlementPanel: React.FC<SettlementPanelProps> = ({
@@ -43,6 +53,8 @@ export const SettlementPanel: React.FC<SettlementPanelProps> = ({
     onPrintGuestBill,
     onSelectPaymentMethod,
     onInstantCardPay,
+    daySummary = [],
+    activeCashierName,
 }) => {
     const { settings } = useSettings();
     const [logoError, setLogoError] = useState(false);
@@ -200,7 +212,7 @@ export const SettlementPanel: React.FC<SettlementPanelProps> = ({
                                     )}
 
                                     <div className="flex justify-between text-slate-700">
-                                        <span>CASHIER: 01</span>
+                                        <span>CASHIER: {activeCashierName || "—"}</span>
                                         <span>{formattedTime}</span>
                                     </div>
                                     <div className="text-slate-700">
@@ -401,6 +413,47 @@ export const SettlementPanel: React.FC<SettlementPanelProps> = ({
                     </button>
                 </div>
             </div>
+
+            {/* Today's Cashier Day-End Summary */}
+            {daySummary.length > 0 && (() => {
+                const grandCash = daySummary.reduce((s, r) => s + r.cash, 0);
+                const grandCard = daySummary.reduce((s, r) => s + r.card, 0);
+                const grandTotal = daySummary.reduce((s, r) => s + r.total, 0);
+                return (
+                    <div className="px-3.5 pb-3.5 shrink-0 bg-white border-t border-slate-100">
+                        <div className="flex items-center gap-1.5 py-2">
+                            <TrendingUp className="w-3.5 h-3.5 text-violet-500 shrink-0" />
+                            <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Today's Cashier Summary</span>
+                        </div>
+                        <div className="rounded-2xl border border-slate-100 overflow-hidden text-[10px] font-bold">
+                            {/* Header row */}
+                            <div className="grid grid-cols-4 bg-slate-50 px-2 py-1.5 border-b border-slate-100 text-[9px] uppercase tracking-wider text-slate-400 font-black">
+                                <span>Cashier</span>
+                                <span className="text-right flex items-center justify-end gap-0.5"><Banknote className="w-2.5 h-2.5" />Cash</span>
+                                <span className="text-right flex items-center justify-end gap-0.5"><CardIcon className="w-2.5 h-2.5" />Card</span>
+                                <span className="text-right">Total</span>
+                            </div>
+                            {/* Per-cashier rows */}
+                            {daySummary.map((row, i) => (
+                                <div key={i} className="grid grid-cols-4 px-2 py-1.5 border-b border-dashed border-slate-100 last:border-b-0 text-slate-700 hover:bg-slate-50 transition-colors">
+                                    <span className="truncate font-black text-slate-800 pr-1" title={row.cashierName}>{row.cashierName}</span>
+                                    <span className="text-right text-emerald-700">{row.cash > 0 ? row.cash.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "—"}</span>
+                                    <span className="text-right text-blue-700">{row.card > 0 ? row.card.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "—"}</span>
+                                    <span className="text-right font-black text-slate-900">{row.total.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                                </div>
+                            ))}
+                            {/* Grand Total row */}
+                            <div className="grid grid-cols-4 px-2 py-1.5 bg-violet-50 border-t-2 border-violet-200 text-[10px] font-black text-violet-900">
+                                <span>GRAND</span>
+                                <span className="text-right">{grandCash > 0 ? grandCash.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "—"}</span>
+                                <span className="text-right">{grandCard > 0 ? grandCard.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "—"}</span>
+                                <span className="text-right">{grandTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                            </div>
+                        </div>
+                        <p className="text-[9px] text-slate-400 text-center mt-1.5 font-medium">{currencySymbol} amounts · today only</p>
+                    </div>
+                );
+            })()}
         </div>
     );
 };

@@ -8,6 +8,7 @@ import crypto from "crypto";
 export type LoginResponse = {
   success: boolean;
   username?: string;
+  name?: string;
   role?: string;
   error?: string;
 };
@@ -74,7 +75,8 @@ export async function verifyStaffLogin(
 
     return {
       success: true,
-      username: String(staffMember.name || staffMember.username),
+      username: String(staffMember.username),
+      name: String(staffMember.name || staffMember.username),
       role: String(staffMember.role || "Staff"),
     };
   } catch (err: any) {
@@ -85,6 +87,57 @@ export async function verifyStaffLogin(
     };
   }
 }
+
+/**
+ * Verify a staff member by PIN only (no username required).
+ * Uses supabaseAdmin to bypass RLS. Intended for cashier handover flows.
+ */
+export async function verifyStaffByPin(pin: string): Promise<LoginResponse> {
+  try {
+    const cleanPin = String(pin || "").trim();
+    console.log("[verifyStaffByPin] Entered PIN:", cleanPin);
+
+    if (!cleanPin) {
+      return { success: false, error: "PIN is required." };
+    }
+
+    if (!supabaseAdmin) {
+      return { success: false, error: "Database configuration missing on server." };
+    }
+
+    const { data: staffList, error: dbError } = await supabaseAdmin
+      .from("staff")
+      .select("username, pin, name, role, is_active")
+      .eq("is_active", true);
+
+    console.log("[verifyStaffByPin] Staff query result:", staffList, "Error:", dbError);
+
+    if (dbError) {
+      console.error("[verifyStaffByPin] DB error:", dbError);
+      return { success: false, error: "Database connection failed. Please try again." };
+    }
+
+    const match = (staffList ?? []).find(
+      (s: any) => String(s.pin ?? "").trim() === cleanPin
+    );
+
+    if (!match) {
+      console.log("[verifyStaffByPin] No match found for PIN:", cleanPin);
+      return { success: false, error: "No active staff member found with that PIN." };
+    }
+
+    return {
+      success: true,
+      username: String(match.username),
+      name: String(match.name || match.username),
+      role: String(match.role || "Staff"),
+    };
+  } catch (err: any) {
+    console.error("[verifyStaffByPin] Catch block:", err);
+    return { success: false, error: "Verification failed. Please try again." };
+  }
+}
+
 
 export type VoidResponse = {
   success: boolean;

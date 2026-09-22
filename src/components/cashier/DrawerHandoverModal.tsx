@@ -6,7 +6,7 @@ import {
   Banknote, ArrowRight, Loader2, Eye, EyeOff,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { verifyStaffByPin } from "@/app/actions/manager";
+import { verifyStaffByPin, recordCashierHandover } from "@/app/actions/manager";
 import type { CashierProfile } from "@/context/AuthContext";
 
 // ---------------------------------------------------------------------------
@@ -72,28 +72,7 @@ async function fetchHandoverSummary(openingFloat: number): Promise<HandoverSumma
   return { openingFloat, cashSales, pettyCashOut, expectedCash };
 }
 
-async function logHandover(
-  outgoing: CashierProfile,
-  incoming: CashierProfile,
-  summary: HandoverSummary
-): Promise<void> {
-  try {
-    await supabase.from("cashier_handovers").insert([
-      {
-        handover_at: new Date().toISOString(),
-        outgoing_cashier: outgoing.name,
-        incoming_cashier: incoming.name,
-        expected_cash: summary.expectedCash,
-        opening_float: summary.openingFloat,
-        cash_sales: summary.cashSales,
-        petty_cash_out: summary.pettyCashOut,
-      },
-    ]);
-  } catch {
-    // Table may not exist yet — silently skip
-    console.info("[Handover] cashier_handovers table not found — skipping audit log.");
-  }
-}
+
 
 // ---------------------------------------------------------------------------
 // Component
@@ -119,6 +98,7 @@ export function DrawerHandoverModal({
 
   const [verified, setVerified] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [handoverError, setHandoverError] = useState("");
 
   // Reset state when modal opens
   useEffect(() => {
@@ -129,6 +109,7 @@ export function DrawerHandoverModal({
     setVerified(false);
     setConfirming(false);
     setShowPin(false);
+    setHandoverError("");
 
     setLoadingSummary(true);
     fetchHandoverSummary(openingFloat)
@@ -188,9 +169,25 @@ export function DrawerHandoverModal({
   const handleConfirm = async () => {
     if (!incomingProfile || !verified || !summary || confirming) return;
     setConfirming(true);
+    setHandoverError("");
     try {
-      await logHandover(outgoingCashier, incomingProfile, summary);
+      const result = await recordCashierHandover(
+        outgoingCashier.name,
+        incomingProfile.name,
+        summary.expectedCash,
+        summary.openingFloat,
+        summary.cashSales,
+        summary.pettyCashOut,
+      );
+      if (!result.success) {
+        console.error("[DrawerHandover] Failed to insert cashier_handover:", result.error);
+        setHandoverError(result.error ?? "Failed to record handover. Please try again.");
+        return;
+      }
       onConfirm(incomingProfile);
+    } catch (err: any) {
+      console.error("[DrawerHandover] Unexpected handover error:", err);
+      setHandoverError(err?.message ?? "Unexpected error during handover.");
     } finally {
       setConfirming(false);
     }
@@ -352,6 +349,13 @@ export function DrawerHandoverModal({
                 I, <span className="font-black text-slate-800">{incomingProfile.name}</span>, have physically counted and verified the cash in the drawer.
               </span>
             </label>
+          )}
+
+          {/* Handover Error */}
+          {handoverError && (
+            <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-50 border border-rose-200 text-xs font-semibold text-rose-600 animate-in fade-in duration-150">
+              <AlertCircle className="w-3.5 h-3.5 shrink-0" /> {handoverError}
+            </div>
           )}
 
           {/* Confirm & Switch */}

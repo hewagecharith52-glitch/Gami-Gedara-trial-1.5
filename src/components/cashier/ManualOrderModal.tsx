@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useCallback, useRef, memo } from "react";
 import { X, Search, Star, ShoppingBag, Send, User, Minus, Plus } from "lucide-react";
 import { OrderItem, OrderType } from "./types";
 import { supabase } from "@/lib/supabase";
@@ -28,6 +28,58 @@ interface ManualOrderModalProps {
 const MENU_CACHE_KEY = "pos_cached_manual_menu_items_v4";
 const FAST_MOVING_CACHE_KEY = "pos_cached_fast_moving_ids_v4";
 
+// ---------------------------------------------------------------------------
+// Memoized Menu Item Card — only re-renders when its own data changes
+// ---------------------------------------------------------------------------
+interface MenuItemCardProps {
+    item: any;
+    isFav: boolean;
+    currencySymbol: string;
+    onAdd: (item: any) => void;
+    onToggleFav: (id: string, e: React.MouseEvent) => void;
+}
+
+const MenuItemCard = memo(function MenuItemCard({
+    item,
+    isFav,
+    currencySymbol,
+    onAdd,
+    onToggleFav,
+}: MenuItemCardProps) {
+    return (
+        <div
+            className="bg-white border border-slate-200/80 hover:border-orange-300 rounded-xl px-3 py-2 flex items-center justify-between gap-2 shadow-2xs hover:shadow-xs transition-all group"
+        >
+            <div className="flex items-center gap-2 min-w-0 flex-1">
+                <button
+                    type="button"
+                    onClick={(e) => onToggleFav(item.id, e)}
+                    className="p-1 rounded-md text-slate-300 hover:text-amber-400 transition-colors shrink-0 cursor-pointer"
+                >
+                    <Star
+                        className={`w-3.5 h-3.5 ${isFav ? "fill-amber-400 stroke-amber-400" : "stroke-current"}`}
+                    />
+                </button>
+                <div className="min-w-0 flex-1">
+                    <h4 className="font-bold text-slate-800 text-xs truncate">{item.name}</h4>
+                    <span className="text-[10px] text-slate-400 font-semibold block truncate">{item.category}</span>
+                </div>
+            </div>
+            <div className="flex items-center shrink-0">
+                <button
+                    type="button"
+                    onClick={() => onAdd(item)}
+                    className="px-3 py-2 bg-slate-100 hover:bg-orange-50 hover:text-orange-600 hover:border-orange-300 border border-slate-200 rounded-lg transition-all active:scale-95 cursor-pointer"
+                >
+                    <span className="text-xs font-black text-slate-800 hover:text-orange-600 leading-tight block">
+                        {currencySymbol} {Number(item.price).toLocaleString()}
+                    </span>
+                </button>
+            </div>
+        </div>
+    );
+});
+
 export const ManualOrderModal: React.FC<ManualOrderModalProps> = ({
     isOpen,
     onClose,
@@ -40,7 +92,11 @@ export const ManualOrderModal: React.FC<ManualOrderModalProps> = ({
     onSubmitOrder,
     isSubmitting,
 }) => {
+    // Raw input value updates immediately for responsive feel;
+    // debouncedSearch is what filteredMenu actually uses.
     const [searchQuery, setSearchQuery] = useState("");
+    const [debouncedSearch, setDebouncedSearch] = useState("");
+    const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [activeCategory, setActiveCategory] = useState("All");
     const [cart, setCart] = useState<OrderItem[]>([]);
     const [orderType, setOrderType] = useState<string>(initialOrderType);
@@ -90,11 +146,23 @@ export const ManualOrderModal: React.FC<ManualOrderModalProps> = ({
         setCart([]);
         setSpecialNotes("");
         setSearchQuery("");
+        setDebouncedSearch("");
         setActiveCategory("All");
     }, [isOpen, initialOrderType, initialCustomerName]);
 
     useEffect(() => {
+        if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+        searchDebounceRef.current = setTimeout(() => {
+            setDebouncedSearch(searchQuery);
+        }, 300);
+        return () => {
+            if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+        };
+    }, [searchQuery]);
+
+    useEffect(() => {
         if (!isOpen) return;
+        if (dbMenu.length > 0) return;
 
         let isMounted = true;
         const fetchMenu = async () => {
@@ -160,7 +228,7 @@ export const ManualOrderModal: React.FC<ManualOrderModalProps> = ({
         };
     }, [isOpen]);
 
-    const toggleFavorite = (id: string, e: React.MouseEvent) => {
+    const toggleFavorite = useCallback((id: string, e: React.MouseEvent) => {
         e.stopPropagation();
         setFavoriteIds((prev) => {
             const next = prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id];
@@ -169,7 +237,7 @@ export const ManualOrderModal: React.FC<ManualOrderModalProps> = ({
             }
             return next;
         });
-    };
+    }, []);
 
     const filteredMenu = useMemo(() => {
         let filtered = dbMenu;
@@ -183,19 +251,19 @@ export const ManualOrderModal: React.FC<ManualOrderModalProps> = ({
         } else if (activeCategory !== "All") {
             filtered = filtered.filter((item) => item.category === activeCategory);
         }
-        if (searchQuery) {
-            const q = searchQuery.toLowerCase().trim();
+        if (debouncedSearch) {
+            const q = debouncedSearch.toLowerCase().trim();
             filtered = filtered.filter((item) => item.name.toLowerCase().includes(q));
         }
         return filtered;
-    }, [activeCategory, searchQuery, dbMenu, favoriteIds, fastMovingItemIds]);
+    }, [activeCategory, debouncedSearch, dbMenu, favoriteIds, fastMovingItemIds]);
 
     const menuCategories = useMemo(() => {
         const cats = Array.from(new Set(dbMenu.map((item) => item.category).filter(Boolean))).sort() as string[];
         return ["All", "⭐ Favorites", "🔥 Fast Moving", ...cats];
     }, [dbMenu]);
 
-    const handleAddItemToCart = (item: any) => {
+    const handleAddItemToCart = useCallback((item: any) => {
         const itemName = item.name.trim();
         const itemPrice = Number(item.price);
 
@@ -216,7 +284,7 @@ export const ManualOrderModal: React.FC<ManualOrderModalProps> = ({
                 },
             ];
         });
-    };
+    }, []);
 
     const updateCart = (item: OrderItem, delta: number) => {
         setCart((prev) => {
@@ -322,50 +390,16 @@ export const ManualOrderModal: React.FC<ManualOrderModalProps> = ({
                             </div>
                         ) : (
                             <div className="flex flex-col gap-2">
-                                {filteredMenu.map((item) => {
-                                    const isFav = favoriteIds.includes(item.id);
-
-                                    return (
-                                        <div
-                                            key={item.id}
-                                            className="bg-white border border-slate-200/80 hover:border-orange-300 rounded-xl px-3 py-2 flex items-center justify-between gap-2 shadow-2xs hover:shadow-xs transition-all group"
-                                        >
-                                            <div className="flex items-center gap-2 min-w-0 flex-1">
-                                                <button
-                                                    type="button"
-                                                    onClick={(e) => toggleFavorite(item.id, e)}
-                                                    className="p-1 rounded-md text-slate-300 hover:text-amber-400 transition-colors shrink-0 cursor-pointer"
-                                                >
-                                                    <Star
-                                                        className={`w-3.5 h-3.5 ${isFav ? "fill-amber-400 stroke-amber-400" : "stroke-current"
-                                                            }`}
-                                                    />
-                                                </button>
-                                                <div className="min-w-0 flex-1">
-                                                    <h4 className="font-bold text-slate-800 text-xs truncate">
-                                                        {item.name}
-                                                    </h4>
-                                                    <span className="text-[10px] text-slate-400 font-semibold block truncate">
-                                                        {item.category}
-                                                    </span>
-                                                </div>
-                                            </div>
-
-                                            {/* Clean Single Clickable Price Button */}
-                                            <div className="flex items-center shrink-0">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleAddItemToCart(item)}
-                                                    className="px-3 py-2 bg-slate-100 hover:bg-orange-50 hover:text-orange-600 hover:border-orange-300 border border-slate-200 rounded-lg transition-all active:scale-95 cursor-pointer"
-                                                >
-                                                    <span className="text-xs font-black text-slate-800 hover:text-orange-600 leading-tight block">
-                                                        {currencySymbol} {Number(item.price).toLocaleString()}
-                                                    </span>
-                                                </button>
-                                            </div>
-                                        </div>
-                                    );
-                                })}
+                                {filteredMenu.map((item) => (
+                                    <MenuItemCard
+                                        key={item.id}
+                                        item={item}
+                                        isFav={favoriteIds.includes(item.id)}
+                                        currencySymbol={currencySymbol}
+                                        onAdd={handleAddItemToCart}
+                                        onToggleFav={toggleFavorite}
+                                    />
+                                ))}
                             </div>
                         )}
                     </div>

@@ -414,11 +414,11 @@ export const SettlementPanel: React.FC<SettlementPanelProps> = ({
                 </div>
             </div>
 
-            {/* Today's Cashier Day-End Summary */}
-            {daySummary.length > 0 && (() => {
+            {/* Today's Cashier Day-End Summary — always mounted to prevent height jump */}
+            {(() => {
                 const grandCash = daySummary.reduce((s, r) => s + r.cash, 0);
                 const grandCard = daySummary.reduce((s, r) => s + r.card, 0);
-                const grandTotal = daySummary.reduce((s, r) => s + r.total, 0);
+                const grandTotalAmt = daySummary.reduce((s, r) => s + r.total, 0);
                 return (
                     <div className="px-3.5 pb-3.5 shrink-0 bg-white border-t border-slate-100">
                         <div className="flex items-center gap-1.5 py-2">
@@ -433,27 +433,40 @@ export const SettlementPanel: React.FC<SettlementPanelProps> = ({
                                 <span className="text-right flex items-center justify-end gap-0.5"><CardIcon className="w-2.5 h-2.5" />Card</span>
                                 <span className="text-right">Total</span>
                             </div>
-                            {/* Per-cashier rows */}
-                            {daySummary.map((row, i) => (
-                                <div key={i} className="grid grid-cols-4 px-2 py-1.5 border-b border-dashed border-slate-100 last:border-b-0 text-slate-700 hover:bg-slate-50 transition-colors">
-                                    <span className="truncate font-black text-slate-800 pr-1" title={row.cashierName}>{row.cashierName}</span>
-                                    <span className="text-right text-emerald-700">{row.cash > 0 ? row.cash.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "—"}</span>
-                                    <span className="text-right text-blue-700">{row.card > 0 ? row.card.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "—"}</span>
-                                    <span className="text-right font-black text-slate-900">{row.total.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                            {daySummary.length === 0 ? (
+                                /* Placeholder row — keeps fixed height while fetch is in-flight */
+                                <div className="grid grid-cols-4 px-2 py-1.5 text-slate-300">
+                                    <span className="truncate">—</span>
+                                    <span className="text-right">—</span>
+                                    <span className="text-right">—</span>
+                                    <span className="text-right">—</span>
                                 </div>
-                            ))}
-                            {/* Grand Total row */}
-                            <div className="grid grid-cols-4 px-2 py-1.5 bg-violet-50 border-t-2 border-violet-200 text-[10px] font-black text-violet-900">
-                                <span>GRAND</span>
-                                <span className="text-right">{grandCash > 0 ? grandCash.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "—"}</span>
-                                <span className="text-right">{grandCard > 0 ? grandCard.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "—"}</span>
-                                <span className="text-right">{grandTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
-                            </div>
+                            ) : (
+                                <>
+                                    {/* Per-cashier rows */}
+                                    {daySummary.map((row, i) => (
+                                        <div key={i} className="grid grid-cols-4 px-2 py-1.5 border-b border-dashed border-slate-100 last:border-b-0 text-slate-700 hover:bg-slate-50 transition-colors">
+                                            <span className="truncate font-black text-slate-800 pr-1" title={row.cashierName}>{row.cashierName}</span>
+                                            <span className="text-right text-emerald-700">{row.cash > 0 ? row.cash.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "—"}</span>
+                                            <span className="text-right text-blue-700">{row.card > 0 ? row.card.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "—"}</span>
+                                            <span className="text-right font-black text-slate-900">{row.total.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                                        </div>
+                                    ))}
+                                    {/* Grand Total row */}
+                                    <div className="grid grid-cols-4 px-2 py-1.5 bg-violet-50 border-t-2 border-violet-200 text-[10px] font-black text-violet-900">
+                                        <span>GRAND</span>
+                                        <span className="text-right">{grandCash > 0 ? grandCash.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "—"}</span>
+                                        <span className="text-right">{grandCard > 0 ? grandCard.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "—"}</span>
+                                        <span className="text-right">{grandTotalAmt.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                                    </div>
+                                </>
+                            )}
                         </div>
                         <p className="text-[9px] text-slate-400 text-center mt-1.5 font-medium">{currencySymbol} amounts · today only</p>
                     </div>
                 );
             })()}
+
         </div>
     );
 };

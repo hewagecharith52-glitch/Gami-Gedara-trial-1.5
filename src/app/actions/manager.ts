@@ -204,3 +204,54 @@ export async function clearStaffLogin(): Promise<void> {
     cookieStore.delete("auth_token");
   } catch { }
 }
+
+// ---------------------------------------------------------------------------
+// Cashier Handover Logging
+// ---------------------------------------------------------------------------
+
+export type HandoverResponse = {
+  success: boolean;
+  error?: string;
+};
+
+/**
+ * Inserts a cashier_handovers row using supabaseAdmin so it bypasses RLS.
+ * Called from DrawerHandoverModal immediately before the session switches.
+ */
+export async function recordCashierHandover(
+  outgoing: string,
+  incoming: string,
+  expectedCash: number,
+  openingFloat: number,
+  cashSales: number,
+  pettyCashOut: number
+): Promise<HandoverResponse> {
+  try {
+    if (!supabaseAdmin) {
+      return { success: false, error: "Database configuration missing on server." };
+    }
+
+    const { error } = await supabaseAdmin.from("cashier_handovers").insert([
+      {
+        handover_at: new Date().toISOString(),
+        outgoing_cashier: outgoing,
+        incoming_cashier: incoming,
+        expected_cash: expectedCash,
+        opening_float: openingFloat,
+        cash_sales: cashSales,
+        petty_cash_out: pettyCashOut,
+      },
+    ]);
+
+    if (error) {
+      console.error("[recordCashierHandover] Failed to insert cashier_handover:", error);
+      return { success: false, error: error.message };
+    }
+
+    console.log(`[recordCashierHandover] Handover logged: ${outgoing} → ${incoming}`);
+    return { success: true };
+  } catch (err: any) {
+    console.error("[recordCashierHandover] Unexpected error:", err);
+    return { success: false, error: err?.message ?? "Unknown error." };
+  }
+}

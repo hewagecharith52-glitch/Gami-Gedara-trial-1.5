@@ -106,6 +106,10 @@ export function Navbar({ rightActions }: { rightActions?: React.ReactNode }) {
     return `${weekday}, ${month} ${day} | ${time}`;
   };
 
+  const formatTimeOnly = (date: Date) => {
+    return date.toLocaleString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true });
+  };
+
   const brandDisplayName = settings?.name || "Restaurant POS";
 
   return (
@@ -118,7 +122,6 @@ export function Navbar({ rightActions }: { rightActions?: React.ReactNode }) {
       >
         {/* Left Section: Logo, Primary Cashier & Date */}
         <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0 min-w-0">
-
           {/* Logo & Subtitle */}
           <Link href="/cashier" className="flex items-center gap-2 shrink-0 group">
             <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-2xl bg-gradient-to-tr from-orange-500 to-amber-500 text-white flex items-center justify-center shadow-md shadow-orange-500/30 shrink-0 group-hover:scale-105 transition-transform">
@@ -147,11 +150,12 @@ export function Navbar({ rightActions }: { rightActions?: React.ReactNode }) {
             </div>
           )}
 
-          {/* Date & Time Pill (Mobile   Tab/Desktop  ) */}
+          {/* Date & Time Pill (Laptops: Time only | Wide 2XL Screens: Full Date + Time) */}
           {mounted && (
-            <div className="hidden sm:flex items-center gap-1.5 h-8 px-3 rounded-full bg-slate-50/80 border border-slate-200/90 text-[11px] font-bold text-slate-700 whitespace-nowrap shrink-0 shadow-2xs">
+            <div className="hidden sm:flex items-center gap-1.5 h-8 px-2.5 sm:px-3 rounded-full bg-slate-50/80 border border-slate-200/90 text-[11px] font-bold text-slate-700 whitespace-nowrap shrink-0 shadow-2xs">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-              <span>{formatDateTime(currentTime)}</span>
+              <span className="hidden 2xl:inline">{formatDateTime(currentTime)}</span>
+              <span className="inline 2xl:hidden">{formatTimeOnly(currentTime)}</span>
             </div>
           )}
         </div>
@@ -363,7 +367,6 @@ export function Navbar({ rightActions }: { rightActions?: React.ReactNode }) {
         currencySymbol={currencySymbol}
         onConfirm={(incomingProfile) => {
           setShowHandoverModal(false);
-          // Replace session in-place — no redirect to /login
           login(incomingProfile.name, true, incomingProfile);
           router.push("/cashier");
         }}

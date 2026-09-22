@@ -55,7 +55,15 @@ export default function CashierPage() {
   const cashier = useCurrentCashier();
   const [orders, setOrders] = useState<Order[]>([]);
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
-  const [daySummary, setDaySummary] = useState<CashierDaySummary[]>([]);
+
+  // Persist day summary in localStorage so the panel renders without a pop-in on revisit
+  const [daySummary, setDaySummary] = useState<CashierDaySummary[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const cached = localStorage.getItem("pos_cashier_day_summary_v1");
+      return cached ? JSON.parse(cached) : [];
+    } catch { return []; }
+  });
 
   // Mobile App View Active Tab
   const [mobileTab, setMobileTab] = useState<"tables" | "live" | "settle">("tables");
@@ -83,7 +91,14 @@ export default function CashierPage() {
   const [paymentModalMethod, setPaymentModalMethod] = useState<string>("Cash");
   const [stagedDirectOrder, setStagedDirectOrder] = useState<any>(null);
 
-  const [dbTables, setDbTables] = useState<any[]>([]);
+  // Persist table list in localStorage so count never jumps on revisit
+  const [dbTables, setDbTables] = useState<any[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const cached = localStorage.getItem("pos_restaurant_tables_v1");
+      return cached ? JSON.parse(cached) : [];
+    } catch { return []; }
+  });
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [manualModalType, setManualModalType] = useState("takeaway");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -108,6 +123,9 @@ export default function CashierPage() {
   const lastPrintTimeRef = useRef<number>(0);
   const localHandledOrderIds = useRef<Set<string>>(new Set());
   const ordersRef = useRef<Order[]>([]);
+  // True only on the very first fetch — prevents skeleton flash on background revalidation
+  const isInitialLoad = useRef(true);
+  const [isLoadingOrders, setIsLoadingOrders] = useState(true);
 
   useEffect(() => { ordersRef.current = orders; }, [orders]);
 
@@ -145,7 +163,10 @@ export default function CashierPage() {
       map.set(name, existing);
     }
 
-    setDaySummary(Array.from(map.values()).sort((a, b) => b.total - a.total));
+    const next = Array.from(map.values()).sort((a, b) => b.total - a.total);
+    setDaySummary(next);
+    // Persist so the panel renders immediately on the next visit
+    try { localStorage.setItem("pos_cashier_day_summary_v1", JSON.stringify(next)); } catch {}
   }, []);
 
   const triggerSafePrint = useCallback((order: Order, isKot: boolean = false, onClose?: () => void) => {
@@ -188,16 +209,16 @@ export default function CashierPage() {
     const fetchRestaurantTables = async () => {
       const { data } = await supabase.from("restaurant_tables").select("*").order("created_at", { ascending: true });
       if (data && data.length > 0) {
-        setDbTables(data.map((t: any) => ({ id: String(t.table_no), name: `T${t.table_no}` })));
+        const mapped = data.map((t: any) => ({ id: String(t.table_no), name: `T${t.table_no}` }));
+        setDbTables(mapped);
+        // Persist so the correct table count is available on next visit without waiting for fetch
+        try { localStorage.setItem("pos_restaurant_tables_v1", JSON.stringify(mapped)); } catch {}
       }
     };
     fetchRestaurantTables();
   }, []);
 
-  const tables = useMemo(() => {
-    if (dbTables.length > 0) return dbTables;
-    return Array.from({ length: 20 }, (_, i) => ({ id: String(i + 1), name: `T${i + 1}` }));
-  }, [dbTables]);
+  const tables = useMemo(() => dbTables, [dbTables]);
 
   const updateIncomingQrList = useCallback((currentOrders: Order[]) => {
     const pendingList: Order[] = [];
@@ -233,10 +254,20 @@ export default function CashierPage() {
         }
       });
       setWaitingPaymentTableNos(waitingSet);
-
-      if (!selectedOrderId && fetched.length > 0) setSelectedOrderId(fetched[0].id);
     }
-  }, [selectedOrderId, updateIncomingQrList]);
+    // Mark that the initial load is complete so subsequent fetches don't flash skeleton
+    if (isInitialLoad.current) {
+      isInitialLoad.current = false;
+      setIsLoadingOrders(false);
+    }
+  }, [updateIncomingQrList]);
+
+  // Auto-select the first order on first load only
+  useEffect(() => {
+    if (orders.length > 0 && !selectedOrderId) {
+      setSelectedOrderId(orders[0].id);
+    }
+  }, [orders, selectedOrderId]);
 
   useEffect(() => {
     fetchOrders();
